@@ -1,0 +1,58 @@
+D&D 5E Character Generator
+ 
+Copyright 2018 by Daniel Yetman
+ 
+Initial version written 9/29/18
+ 
+Current version:     v0.0.12
+Version date:        10/6/18
+ 
+Changelist:
+ 
+9/28/18
+v0.0.1 - Initial function prototypes for some calls defined
+         Stat/modifier relationship implemented
+         Standard array values defined
+         Default stat values defined
+         Basic functionality test
+         Pseudocode for undefined functions written
+ 
+v0.0.2 - Basic Dice Rolls implemented (d100, d20, d12, d10, d8, d6, d4, d2)
+         Basic Race Choice feature implemented
+         Basic Racial Attribute functions for PHB main races implemented
+         Basic Subrace Attribute functions for PHB subraces implemented
+ 
+9/29/18
+v0.0.3 - Partial subrace selection tree implemented
+ 
+10/1/18
+v0.0.4 - Simplified dice rolling algorithm
+         Cleaned up depreciated code
+         Corrected typographical errors
+ 
+v0.0.5 - Expanded subrace functions
+         Fixed dice rolling functions
+ 
+10/2/18
+v0.0.6 - Initial racial bonus features implemented
+ 
+v0.0.7 - Refactored dice rolling randomness
+         Refactored racial bonus functions
+ 
+10/3/18
+v0.0.8 - Prototype of stat_roll() implemented
+ 
+10/3/18
+v0.0.9 - Wrote stat_roll() algorithm
+         Defined and implemented draconic ancestries
+
+10/5/18
+v0.0.10 - Refactored stat_roll() algorithm
+          Implemented global/local variable interoperability
+
+10/5/18
+v0.0.11 - Implemented stat_array() algorithm
+          Implemented standard_array()
+
+10/6/18
+v0.0.12 - Defined prototypes of races and subraces from EE, SCAG, XGtE, and Volo
