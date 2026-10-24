@@ -1,0 +1,76 @@
+{
+  "id": "examplepack:practice_guardian",
+  "kind": "class",
+  "name": "Practice Guardian (Example \u2014 not official)",
+  "ruleset": "5e-2014",
+  "description": "Minimal class definition demonstrating saving throw proficiency, equipment conditions and feature progression. NOT a full 5e class.",
+  "effects": [
+    {
+      "op": "proficiency.grant",
+      "category": "saving_throw",
+      "id": "STR"
+    },
+    {
+      "op": "proficiency.grant",
+      "category": "saving_throw",
+      "id": "CON"
+    }
+  ],
+  "traits": [
+    "examplepack:shield_drill"
+  ],
+  "progression": [
+    {
+      "level": 3,
+      "traits": [
+        "examplepack:guardian_focus"
+      ],
+      "choices": [
+        {
+          "id": "bonus_skill",
+          "label": "Practice Guardian level 3: choose a bonus skill",
+          "min": 1,
+          "max": 1,
+          "options": [
+            {
+              "id": "insight",
+              "label": "Insight",
+              "effects": [
+                {
+                  "op": "proficiency.grant",
+                  "category": "skill",
+                  "id": "insight"
+                }
+              ]
+            },
+            {
+              "id": "intimidation",
+              "label": "Intimidation",
+              "effects": [
+                {
+                  "op": "proficiency.grant",
+                  "category": "skill",
+                  "id": "intimidation"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "level": 5,
+      "effects": [
+        {
+          "op": "proficiency.grant",
+          "category": "skill",
+          "id": "survival",
+          "when": {
+            "score_at_least": 13,
+            "ability": "WIS"
+          }
+        }
+      ]
+    }
+  ]
+}

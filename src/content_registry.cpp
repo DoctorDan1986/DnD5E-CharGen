@@ -65,6 +65,31 @@ void validateEffects(const json::object& object) {
         if (!entry.is_object()) throw std::runtime_error("Each effect must be an object");
         const auto& effect = entry.as_object();
         const auto op = requiredString(effect, "op");
+        if (auto* when = effect.if_contains("when")) {
+            if (op == "ability.bonus")
+                throw std::runtime_error("Conditional ability bonuses are not supported: circular dependency");
+            if (!when->is_object()) throw std::runtime_error("when must be an object");
+            const auto& condition = when->as_object();
+            if (condition.empty()) throw std::runtime_error("Empty condition");
+            for (const auto& [key, value] : condition) {
+                auto name = std::string(key);
+                if (name == "level_at_least" || name == "score_at_least") {
+                    if (!value.is_int64() || value.as_int64() < 1 || value.as_int64() > 30)
+                        throw std::runtime_error("Invalid condition threshold");
+                } else if (name == "ability") {
+                    if (!value.is_string() ||
+                        std::find_if(abilityNames.begin(), abilityNames.end(),
+                           [&](const char* a) { return value.as_string() == a; }) == abilityNames.end())
+                        throw std::runtime_error("Invalid condition ability");
+                } else if (name == "equipment_tag") {
+                    if (!value.is_string() || value.as_string().empty())
+                        throw std::runtime_error("Invalid equipment tag");
+                } else throw std::runtime_error("Unknown condition: " + name);
+            }
+            if ((condition.contains("score_at_least") && !condition.contains("ability")) ||
+                (condition.contains("ability") && !condition.contains("score_at_least")))
+                throw std::runtime_error("score_at_least needs ability (and vice versa)");
+        }
         if (op == "ability.bonus") {
             const auto ability = requiredString(effect, "ability");
             if (std::find_if(abilityNames.begin(), abilityNames.end(),
@@ -75,16 +100,115 @@ void validateEffects(const json::object& object) {
         } else if (op == "sense.grant") {
             requiredString(effect, "name");
             auto* range = effect.if_contains("range");
-            if (!range || !range->is_int64() || range->as_int64() <= 0)
+            if (!range || !range->is_int64() || range->as_int64() <= 0 || range->as_int64() > 1000)
                 throw std::runtime_error("sense.grant requires positive integer range");
             continue;
-        } else {
-            throw std::runtime_error("Unrecognized effect operation: " + op);
-        }
+        } else if (op == "proficiency.grant" || op == "proficiency.expertise") {
+            const auto category = requiredString(effect, "category");
+            const auto id = requiredString(effect, "id");
+            const std::set<std::string> categories = {
+                "skill", "saving_throw", "tool", "weapon", "armor", "language"};
+            if (!categories.count(category)) throw std::runtime_error("Unknown proficiency category: " + category);
+            if (op == "proficiency.expertise" && category != "skill" && category != "tool")
+                throw std::runtime_error("Expertise only supports skills and tools");
+            const std::set<std::string> skills = {"acrobatics", "animal_handling", "arcana", "athletics",
+              "deception", "history", "insight", "intimidation", "investigation", "medicine",
+              "nature", "perception", "performance", "persuasion", "religion", "sleight_of_hand",
+              "stealth", "survival"};
+            if (category == "skill" && !skills.count(id))
+                throw std::runtime_error("Unknown 2014 skill: " + id);
+            if (category == "saving_throw" &&
+                std::find_if(abilityNames.begin(), abilityNames.end(),
+                    [&](const char* a) { return id == a; }) == abilityNames.end())
+                throw std::runtime_error("Unknown saving throw: " + id);
+            if (category != "skill" && category != "saving_throw" && !validLocalId(id))
+                throw std::runtime_error("Proficiency ID must be a local identifier: " + id);
+            continue;
+        } else throw std::runtime_error("Unrecognized effect operation: " + op);
         auto* magnitude = effect.if_contains("value");
         if (!magnitude || !magnitude->is_int64() ||
             magnitude->as_int64() < -100 || magnitude->as_int64() > 100)
             throw std::runtime_error("Effect requires integer value between -100 and 100");
+    }
+}
+
+void validateChoices(const json::object& object) {
+    auto* value = object.if_contains("choices");
+    if (!value) return;
+    if (!value->is_array()) throw std::runtime_error("choices must be an array");
+    std::set<std::string> keys;
+    for (const auto& entry : value->as_array()) {
+        if (!entry.is_object()) throw std::runtime_error("choice must be an object");
+        const auto& choice = entry.as_object();
+        const auto id = requiredString(choice, "id");
+        if (!validLocalId(id) || !keys.insert(id).second)
+            throw std::runtime_error("Invalid or duplicate choice ID: " + id);
+        requiredString(choice, "label");
+        auto* min = choice.if_contains("min");
+        auto* max = choice.if_contains("max");
+        auto* options = choice.if_contains("options");
+        if (!min || !max || !min->is_int64() || !max->is_int64() ||
+            min->as_int64() < 0 || max->as_int64() < min->as_int64() ||
+            max->as_int64() > 32 || !options || !options->is_array() ||
+            options->as_array().empty() || options->as_array().size() > 64 ||
+            static_cast<std::size_t>(max->as_int64()) > options->as_array().size())
+            throw std::runtime_error("Invalid choice cardinality/options: " + id);
+        std::set<std::string> optionIds;
+        for (const auto& optionValue : options->as_array()) {
+            if (!optionValue.is_object()) throw std::runtime_error("option must be an object");
+            const auto& option = optionValue.as_object();
+            const auto oid = requiredString(option, "id");
+            if (!validLocalId(oid) || !optionIds.insert(oid).second)
+                throw std::runtime_error("Invalid or duplicate option ID: " + oid);
+            requiredString(option, "label");
+            validateEffects(option);
+        }
+    }
+}
+
+void validatePrerequisites(const json::object& obj) {
+    auto* value = obj.if_contains("prerequisites");
+    if (!value) return;
+    if (!value->is_array()) throw std::runtime_error("prerequisites must be an array");
+    for (const auto& pval : value->as_array()) {
+        if (!pval.is_object()) throw std::runtime_error("prerequisite must be an object");
+        const auto& p = pval.as_object();
+        const auto type = requiredString(p, "type");
+        if (type == "level" || type == "ability") {
+            auto* min = p.if_contains("min");
+            if (!min || !min->is_int64() || min->as_int64() < 1 || min->as_int64() > 30 ||
+                (type == "level" && min->as_int64() > 20))
+                throw std::runtime_error("Invalid prerequisite minimum");
+            if (type == "ability") {
+                auto ability = requiredString(p, "ability");
+                if (std::find_if(abilityNames.begin(), abilityNames.end(),
+                    [&](const char* a) { return ability == a; }) == abilityNames.end())
+                    throw std::runtime_error("Invalid prerequisite ability");
+            }
+        } else if (type == "race" || type == "subrace" || type == "class" || type == "feat") {
+            if (!validQualifiedId(requiredString(p, "id")))
+                throw std::runtime_error("Invalid prerequisite ID");
+        } else throw std::runtime_error("Unknown prerequisite: " + type);
+    }
+}
+
+void validateProgression(const json::object& object) {
+    auto* value = object.if_contains("progression");
+    if (!value) return;
+    if (!value->is_array()) throw std::runtime_error("progression must be an array");
+    std::set<int> levels;
+    for (const auto& entry : value->as_array()) {
+        if (!entry.is_object()) throw std::runtime_error("progression step must be an object");
+        const auto& step = entry.as_object();
+        auto* at = step.if_contains("level");
+        if (!at || !at->is_int64() || at->as_int64() < 1 || at->as_int64() > 20 ||
+            !levels.insert(static_cast<int>(at->as_int64())).second)
+            throw std::runtime_error("Invalid or duplicate progression level");
+        for (const char* key : {"traits", "feats"})
+            for (const auto& id : stringArray(step, key))
+                if (!validQualifiedId(id)) throw std::runtime_error("Invalid progression reference: " + id);
+        validateEffects(step);
+        validateChoices(step);
     }
 }
 
@@ -238,7 +362,7 @@ void ContentRegistry::loadMany(const std::vector<fs::path>& contentRoots) {
                     throw std::runtime_error("ID must be namespaced to package: " + packageId);
                 if (edition != package.ruleset)
                     throw std::runtime_error("Ruleset does not match manifest: " + edition);
-                if (kind != "race" && kind != "subrace" && kind != "trait" && kind != "feat")
+                if (kind != "race" && kind != "subrace" && kind != "trait" && kind != "feat" && kind != "class")
                     throw std::runtime_error("Unsupported definition kind: " + kind);
                 if (kind == "subrace") requiredString(obj, "parent");
                 if (kind == "race") {
@@ -254,6 +378,9 @@ void ContentRegistry::loadMany(const std::vector<fs::path>& contentRoots) {
                     if (!validQualifiedId(ref)) throw std::runtime_error("Invalid feat ID: " + ref);
                 }
                 validateEffects(obj);
+                validateChoices(obj);
+                validatePrerequisites(obj);
+                validateProgression(obj);
                 if (definitions_.count(id)) throw std::runtime_error("Duplicate definition ID: " + id);
                 definitions_.emplace(id, Definition{id, kind, name, edition, packageId, std::move(obj)});
             } catch (const std::exception& e) {
@@ -285,6 +412,20 @@ void ContentRegistry::loadMany(const std::vector<fs::path>& contentRoots) {
                 if (d.kind == "subrace") check(requiredString(d.data, "parent"), "race");
                 for (const auto& ref : stringArray(d.data, "traits")) check(ref, "trait");
                 for (const auto& ref : stringArray(d.data, "feats")) check(ref, "feat");
+                if (auto* progression = d.data.if_contains("progression")) {
+                    for (const auto& step : progression->as_array()) {
+                        for (const auto& ref : stringArray(step.as_object(), "traits")) check(ref, "trait");
+                        for (const auto& ref : stringArray(step.as_object(), "feats")) check(ref, "feat");
+                    }
+                }
+                if (auto* prereqs = d.data.if_contains("prerequisites")) {
+                    for (const auto& prereq : prereqs->as_array()) {
+                        const auto& p = prereq.as_object();
+                        const auto type = requiredString(p, "type");
+                        if (type == "race" || type == "subrace" || type == "class" || type == "feat")
+                            check(requiredString(p, "id"), type);
+                    }
+                }
             } catch (const std::exception& e) { error = e.what(); }
             if (!error.empty()) {
                 diagnostics_.push_back({d.id, error});

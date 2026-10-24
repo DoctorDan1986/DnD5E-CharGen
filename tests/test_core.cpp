@@ -23,7 +23,7 @@ int main() {
         dnd::ContentRegistry registry;
         registry.load(fs::path(DND_SOURCE_DIR) / "Content");
         check(registry.diagnostics().empty(), "example packages validate");
-        check(registry.size() == 8, "core and homebrew definitions loaded");
+        check(registry.size() == 13, "core and homebrew definitions loaded");
         check(registry.ofKind("race", "5e-2014").size() == 1, "dwarf in registry");
         check(registry.ofKind("subrace", "5e-2014").size() == 3, "homebrew subrace autoloaded");
         check(dnd::abilityModifier(9) == -1, "ability score 9 uses floor");
@@ -64,6 +64,81 @@ int main() {
         try { (void)dnd::resolveCharacter(registry, choices); }
         catch (const std::exception&) { threw = true; }
         check(threw, "wrong definition kind rejected");
+
+        // JSON-driven UI choice, selection cardinality, proficiency, and persistence.
+        choices = {};
+        choices.raceId = "core2014:dwarf";
+        choices.subraceId = "examplepack:runic_dwarf";
+        auto pending = dnd::resolveCharacter(registry, choices);
+        check(!pending.complete && pending.requests.size() == 1, "homebrew choice prompts generated");
+        check(pending.requests[0].min == 2 && pending.requests[0].max == 2, "two choices required");
+        choices.selections["examplepack:rune_memory#rune_skills"] = {"arcana", "history"};
+        auto selected = dnd::resolveCharacter(registry, choices);
+        check(selected.complete && selected.proficiencies.at("skill").count("arcana"), "chosen skill grant applied");
+        check(selected.skillBonuses.at("arcana") == 3, "skill modifier includes proficiency");
+        const auto saveText = dnd::serializeCharacterChoices(choices);
+        auto restored = dnd::parseCharacterChoices(saveText);
+        check(restored.selections == choices.selections && restored.subraceId == choices.subraceId,
+              "save/load preserves selections and race");
+        check(dnd::resolveCharacter(registry, restored).complete, "restored character resolves");
+        choices.selections["examplepack:rune_memory#rune_skills"] = {"arcana", "arcana"};
+        threw = false;
+        try { (void)dnd::resolveCharacter(registry, choices); } catch (...) { threw = true; }
+        check(threw, "duplicate choice options rejected");
+        choices.selections["examplepack:rune_memory#rune_skills"] = {"arcana", "history", "investigation"};
+        threw = false;
+        try { (void)dnd::resolveCharacter(registry, choices); } catch (...) { threw = true; }
+        check(threw, "choice maximum enforced");
+        choices.selections["examplepack:rune_memory#rune_skills"] = {"arcana", "history"};
+        choices.selections["examplepack:rune_memory#fake"] = {"arcana"};
+        threw = false;
+        try { (void)dnd::resolveCharacter(registry, choices); } catch (...) { threw = true; }
+        check(threw, "stale selection rejected");
+        choices.selections.erase("examplepack:rune_memory#fake");
+        choices.classId = "examplepack:practice_guardian";
+        auto lvl1 = dnd::resolveCharacter(registry, choices);
+        check(lvl1.savingThrows[0] == 4, "class saving throw proficiency applied");
+        check(!lvl1.proficiencies["skill"].count("athletics"), "shield condition inactive");
+        choices.equipmentTags = {"shield"};
+        check(dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("athletics"),
+              "equipment condition activates skill grant");
+        choices.level = 3;
+        check(dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("perception"),
+              "class level-3 trait unlocked");
+        check(lvl1.proficiencies["skill"].count("perception") == 0, "level gate blocks early feature");
+        check(!dnd::resolveCharacter(registry, choices).complete,
+              "level-3 progression-generated choice must be completed");
+        choices.selections["examplepack:practice_guardian@3#bonus_skill"] = {"insight"};
+        check(dnd::resolveCharacter(registry, choices).complete,
+              "progression choice accepted and resolved");
+        check(dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("insight"),
+              "level-gated option grants proficiency");
+        choices.featIds = {"examplepack:rune_mastery"};
+        check(dnd::resolveCharacter(registry, choices).skillBonuses.at("arcana") == 5,
+              "expertise doubles proficiency bonus for trained skill at level 3");
+        choices.featIds.clear();
+        choices.featIds = {"examplepack:studious_focus"};
+        threw = false;
+        try { (void)dnd::resolveCharacter(registry, choices); } catch (...) { threw = true; }
+        check(threw, "feat level prerequisite enforced");
+        choices.level = 4;
+        // Runic subrace adds INT +1, qualifying base INT 12 for INT 13.
+        check(dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("arcana"),
+              "level and racial ability fulfill feat prerequisites");
+        choices.baseAbilities[3] = 11;
+        threw = false;
+        try { (void)dnd::resolveCharacter(registry, choices); } catch (...) { threw = true; }
+        check(threw, "ability prerequisite enforced");
+        choices.baseAbilities[3] = 12;
+        choices.level = 5;
+        choices.baseAbilities[4] = 13;
+        check(dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("survival"),
+              "level-5 conditional feature activates with WIS >= 13");
+        choices.baseAbilities[4] = 10;
+        check(!dnd::resolveCharacter(registry, choices).proficiencies["skill"].count("survival"),
+              "ability condition suppresses higher level effect");
+        check(dnd::resolveCharacter(registry, choices).proficiencyBonus == 3,
+              "proficiency bonus increases at fifth level");
 
         const auto tmp = fs::temp_directory_path() /
              ("dnd5e-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

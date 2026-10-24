@@ -3,7 +3,53 @@
   "kind": "trait",
   "name": "Rune Memory (Example)",
   "ruleset": "5e-2014",
-  "description": "An example nonmechanical trait for demonstrating module references.",
+  "description": "Example trait: choose two trained skills from a defined list.",
   "effects": [],
-  "sheet": {"section": "features_and_traits", "display": true}
+  "sheet": {
+    "section": "features_and_traits",
+    "display": true
+  },
+  "choices": [
+    {
+      "id": "rune_skills",
+      "label": "Rune Memory: choose two skills",
+      "min": 2,
+      "max": 2,
+      "options": [
+        {
+          "id": "arcana",
+          "label": "Arcana",
+          "effects": [
+            {
+              "op": "proficiency.grant",
+              "category": "skill",
+              "id": "arcana"
+            }
+          ]
+        },
+        {
+          "id": "history",
+          "label": "History",
+          "effects": [
+            {
+              "op": "proficiency.grant",
+              "category": "skill",
+              "id": "history"
+            }
+          ]
+        },
+        {
+          "id": "investigation",
+          "label": "Investigation",
+          "effects": [
+            {
+              "op": "proficiency.grant",
+              "category": "skill",
+              "id": "investigation"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

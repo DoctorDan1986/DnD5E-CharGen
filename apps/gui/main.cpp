@@ -1,153 +1,370 @@
 #include "dnd/character.hpp"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QLayoutItem>
+#include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPushButton>
+#include <QSaveFile>
+#include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <algorithm>
 #include <array>
 #include <filesystem>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace {
 std::filesystem::path asPath(const QString& str) {
-    #ifdef _WIN32
+#ifdef _WIN32
     return std::filesystem::path(str.toStdWString());
 #else
     return std::filesystem::path(str.toUtf8().constData());
 #endif
 }
 
+QString displayLabel(const std::string& text) {
+    QString out = QString::fromStdString(text);
+    return out.replace('_', ' ');
+}
+
 class CharacterWindow : public QWidget {
 public:
     explicit CharacterWindow(dnd::ContentRegistry registry) : registry_(std::move(registry)) {
-        setWindowTitle("5E Character Generator — 2014 (Foundation)");
-        resize(650, 660);
-        auto* layout = new QVBoxLayout(this);
-        auto* intro = new QLabel("2014 character builder foundation — core and homebrew content autoloaded");
+        setWindowTitle("5E Character Generator — 2014 (Modular Preview v0.2)");
+        resize(840, 900);
+        auto* outer = new QVBoxLayout(this);
+        auto* intro = new QLabel("2014 5e modular engine — JSON content, player choices, level features, and saves");
         intro->setWordWrap(true);
-        layout->addWidget(intro);
+        outer->addWidget(intro);
 
-        auto* selectionBox = new QGroupBox("Race and subrace");
+        auto* selectionBox = new QGroupBox("Character identity");
         auto* selection = new QFormLayout(selectionBox);
         race_ = new QComboBox;
         subrace_ = new QComboBox;
+        class_ = new QComboBox;
+        level_ = new QSpinBox;
+        level_->setRange(1, 20);
         selection->addRow("Race", race_);
         selection->addRow("Subrace", subrace_);
-        layout->addWidget(selectionBox);
+        selection->addRow("Class (demo)", class_);
+        selection->addRow("Character level", level_);
+        outer->addWidget(selectionBox);
 
-        auto* abilitiesBox = new QGroupBox("Base abilities (before racial modifiers)");
-        auto* grid = new QGridLayout(abilitiesBox);
-        const std::array<int, 6> defaults = {15, 14, 13, 12, 10, 8};
+        for (const auto* race : registry_.ofKind("race", "5e-2014"))
+            race_->addItem(QString::fromStdString(race->name), QString::fromStdString(race->id));
+        class_->addItem("(None)", "");
+        for (const auto* klass : registry_.ofKind("class", "5e-2014"))
+            class_->addItem(QString::fromStdString(klass->name), QString::fromStdString(klass->id));
+        model_.raceId = race_->currentData().toString().toStdString();
+        setSubraces("");
+
+        auto* abilityBox = new QGroupBox("Base abilities (before racial modifiers)");
+        auto* grid = new QGridLayout(abilityBox);
         for (int i = 0; i < 6; ++i) {
             grid->addWidget(new QLabel(dnd::abilityNames[i]), i / 3, (i % 3) * 2);
-            auto* spin = new QSpinBox;
-            spin->setRange(3, 20);
-            spin->setValue(defaults[i]);
-            grid->addWidget(spin, i / 3, (i % 3) * 2 + 1);
-            abilities_[i] = spin;
-            connect(spin, QOverload<int>::of(&QSpinBox::valueChanged),
-                    this, [this] { updatePreview(); });
+            auto* input = new QSpinBox;
+            input->setRange(3, 20);
+            input->setValue(model_.baseAbilities[i]);
+            abilities_[i] = input;
+            grid->addWidget(input, i / 3, (i % 3) * 2 + 1);
+            connect(input, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, i](int value) {
+                model_.baseAbilities[i] = value;
+                refresh();
+            });
         }
-        layout->addWidget(abilitiesBox);
+        outer->addWidget(abilityBox);
 
-        auto* caption = new QLabel("Calculated preview (not yet a complete character sheet)");
-        layout->addWidget(caption);
+        auto* featureBox = new QGroupBox("Optional features and equipment");
+        auto* featureLayout = new QVBoxLayout(featureBox);
+        shield_ = new QCheckBox("Shield equipped (example equipment tag)");
+        featureLayout->addWidget(shield_);
+        connect(shield_, &QCheckBox::toggled, this, [this](bool on) {
+            model_.equipmentTags.clear();
+            if (on) model_.equipmentTags.push_back("shield");
+            refresh();
+        });
+        auto* featCaption = new QLabel("Optional feats (prerequisites are checked by the engine):");
+        featCaption->setWordWrap(true);
+        featureLayout->addWidget(featCaption);
+        for (const auto* feat : registry_.ofKind("feat", "5e-2014")) {
+            auto* checkbox = new QCheckBox(QString::fromStdString(feat->name));
+            featCheckboxes_.push_back({feat->id, checkbox});
+            featureLayout->addWidget(checkbox);
+            const auto id = feat->id;
+            connect(checkbox, &QCheckBox::toggled, this, [this, id](bool enabled) {
+                auto& feats = model_.featIds;
+                feats.erase(std::remove(feats.begin(), feats.end(), id), feats.end());
+                if (enabled) feats.push_back(id);
+                refresh();
+            });
+        }
+        outer->addWidget(featureBox);
+
+        auto* choiceGroup = new QGroupBox("Choices generated by content definitions");
+        auto* choiceGroupLayout = new QVBoxLayout(choiceGroup);
+        auto* choiceScroll = new QScrollArea;
+        choiceScroll->setWidgetResizable(true);
+        choiceScroll->setMaximumHeight(175);
+        choicesWidget_ = new QWidget;
+        choicesLayout_ = new QVBoxLayout(choicesWidget_);
+        choiceScroll->setWidget(choicesWidget_);
+        choiceGroupLayout->addWidget(choiceScroll);
+        outer->addWidget(choiceGroup);
+
+        auto* actions = new QHBoxLayout;
+        auto* open = new QPushButton("Open character JSON…");
+        auto* save = new QPushButton("Save character JSON…");
+        actions->addWidget(open);
+        actions->addWidget(save);
+        outer->addLayout(actions);
+        connect(open, &QPushButton::clicked, this, [this] { openCharacter(); });
+        connect(save, &QPushButton::clicked, this, [this] { saveCharacter(); });
+
+        outer->addWidget(new QLabel("Calculated preview (not yet the complete official character sheet)"));
         preview_ = new QPlainTextEdit;
         preview_->setReadOnly(true);
-        layout->addWidget(preview_, 1);
-
-        const auto races = registry_.ofKind("race", "5e-2014");
-        for (const auto* r : races)
-            race_->addItem(QString::fromStdString(r->name), QString::fromStdString(r->id));
-        connect(race_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this] { updateSubraces(); });
-        connect(subrace_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this] { updatePreview(); });
-        updateSubraces();
-
+        outer->addWidget(preview_, 1);
         if (!registry_.diagnostics().empty()) {
-            QString detail = QString::number(registry_.diagnostics().size()) + " content diagnostic(s):\n";
-            for (const auto& diagnostic : registry_.diagnostics())
-                detail += QString::fromStdString(diagnostic.file + ": " + diagnostic.message + "\n");
-            auto* warnings = new QPlainTextEdit(detail);
-            warnings->setReadOnly(true);
-            warnings->setMaximumHeight(105);
-            layout->addWidget(warnings);
+            QString warnings = QString::number(registry_.diagnostics().size()) + " content diagnostic(s):\n";
+            for (const auto& d : registry_.diagnostics())
+                warnings += QString::fromStdString(d.file + ": " + d.message + "\n");
+            auto* display = new QPlainTextEdit(warnings);
+            display->setReadOnly(true);
+            display->setMaximumHeight(90);
+            outer->addWidget(display);
         }
+
+        connect(race_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+            model_.raceId = race_->currentData().toString().toStdString();
+            model_.selections.clear();
+            setSubraces("");
+            refresh();
+        });
+        connect(subrace_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+            model_.subraceId = subrace_->currentData().toString().toStdString();
+            model_.selections.clear();
+            refresh();
+        });
+        connect(class_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+            model_.classId = class_->currentData().toString().toStdString();
+            model_.selections.clear();
+            refresh();
+        });
+        connect(level_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+            model_.level = value;
+            // When level goes down, only discard selections whose source is
+            // no longer active. Retain choices from all unaffected features.
+            for (int attempt = 0; attempt < 25; ++attempt) {
+                try { (void)dnd::resolveCharacter(registry_, model_); break; }
+                catch (const std::runtime_error& error) {
+                    const std::string message = error.what();
+                    const std::string prefix = "Stale or unavailable choice: ";
+                    if (message.rfind(prefix, 0) != 0) break;
+                    model_.selections.erase(message.substr(prefix.size()));
+                }
+            }
+            refresh();
+        });
+        refresh();
     }
 
 private:
-    void updateSubraces() {
-        subrace_->blockSignals(true);
+    void setSubraces(const std::string& requestedId, bool defaultToFirst = true) {
+        const QSignalBlocker blocker(subrace_);
         subrace_->clear();
         subrace_->addItem("(None)", "");
-        const auto selected = race_->currentData().toString().toStdString();
-        for (const auto* s : registry_.ofKind("subrace", "5e-2014")) {
-            if (std::string(s->data.at("parent").as_string()) == selected)
-                subrace_->addItem(QString::fromStdString(s->name), QString::fromStdString(s->id));
-        }
-        if (subrace_->count() > 1) subrace_->setCurrentIndex(1);
-        subrace_->blockSignals(false);
-        updatePreview();
+        for (const auto* sub : registry_.ofKind("subrace", "5e-2014"))
+            if (std::string(sub->data.at("parent").as_string()) == model_.raceId)
+                subrace_->addItem(QString::fromStdString(sub->name), QString::fromStdString(sub->id));
+        int index = subrace_->findData(QString::fromStdString(requestedId));
+        if (index < 0) index = (defaultToFirst && subrace_->count() > 1) ? 1 : 0;
+        if (requestedId.empty() && defaultToFirst && subrace_->count() > 1) index = 1;
+        subrace_->setCurrentIndex(index);
+        model_.subraceId = subrace_->currentData().toString().toStdString();
     }
 
-    void updatePreview() {
-        try {
-            dnd::CharacterChoices choices;
-            choices.raceId = race_->currentData().toString().toStdString();
-            choices.subraceId = subrace_->currentData().toString().toStdString();
-            for (int i = 0; i < 6; ++i) choices.baseAbilities[i] = abilities_[i]->value();
-            const auto result = dnd::resolveCharacter(registry_, choices);
-            QString output = "2014 5e • Level 1\n\n";
-            for (int i = 0; i < 6; ++i) {
-                output += QString("%1   %2   (%3%4)\n")
-                    .arg(dnd::abilityNames[i])
-                    .arg(result.abilities[i])
-                    .arg(result.modifiers[i] >= 0 ? "+" : "")
-                    .arg(result.modifiers[i]);
+    void clearChoicesUI() {
+        while (auto* item = choicesLayout_->takeAt(0)) {
+            if (auto* widget = item->widget()) widget->deleteLater();
+            delete item;
+        }
+    }
+
+    void renderChoices(const std::vector<dnd::ChoiceRequest>& requests) {
+        clearChoicesUI();
+        if (requests.empty()) {
+            choicesLayout_->addWidget(new QLabel("No additional choices for these features."));
+            return;
+        }
+        for (const auto& req : requests) {
+            auto* group = new QGroupBox(QString::fromStdString(req.label) +
+                QString(" (select %1–%2)").arg(req.min).arg(req.max));
+            auto* row = new QVBoxLayout(group);
+            if (req.max == 1) {
+                auto* combo = new QComboBox;
+                combo->addItem("(None)", "");
+                for (const auto& opt : req.options)
+                    combo->addItem(QString::fromStdString(opt.label), QString::fromStdString(opt.id));
+                if (!req.selected.empty()) {
+                    const int i = combo->findData(QString::fromStdString(req.selected.front()));
+                    if (i >= 0) combo->setCurrentIndex(i);
+                }
+                row->addWidget(combo);
+                connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                        this, [this, combo, key = req.key] {
+                    const std::string option = combo->currentData().toString().toStdString();
+                    if (option.empty()) model_.selections.erase(key);
+                    else model_.selections[key] = {option};
+                    refresh();
+                });
+            } else {
+                for (const auto& opt : req.options) {
+                    auto* checkbox = new QCheckBox(QString::fromStdString(opt.label));
+                    checkbox->setChecked(std::find(req.selected.begin(), req.selected.end(), opt.id)
+                                         != req.selected.end());
+                    checkbox->setEnabled(checkbox->isChecked() ||
+                                         static_cast<int>(req.selected.size()) < req.max);
+                    row->addWidget(checkbox);
+                    connect(checkbox, &QCheckBox::toggled, this,
+                            [this, key = req.key, id = opt.id](bool checked) {
+                        auto& values = model_.selections[key];
+                        values.erase(std::remove(values.begin(), values.end(), id), values.end());
+                        if (checked) values.push_back(id);
+                        if (values.empty()) model_.selections.erase(key);
+                        refresh();
+                    });
+                }
             }
-            output += "\nSize: " + QString::fromStdString(result.size);
-            output += "\nSpeed: " + QString::number(result.speed) + " ft.";
-            output += "\nExtra HP from traits: +" + QString::number(result.bonusHitPoints);
-            output += "\n\nTraits:\n";
+            choicesLayout_->addWidget(group);
+        }
+    }
+
+    void refresh() {
+        try {
+            const auto result = dnd::resolveCharacter(registry_, model_);
+            renderChoices(result.requests);
+            QString output = QString("2014 5e • Level %1%2\n").arg(model_.level)
+                .arg(result.complete ? " • All required choices complete" : " • Choices remaining");
+            output += QString("Proficiency bonus: +%1\n\n").arg(result.proficiencyBonus);
+            for (int i = 0; i < 6; ++i)
+                output += QString("%1   %2   (%3%4)  Saving throw: %5%6\n")
+                    .arg(dnd::abilityNames[i]).arg(result.abilities[i])
+                    .arg(result.modifiers[i] >= 0 ? "+" : "").arg(result.modifiers[i])
+                    .arg(result.savingThrows[i] >= 0 ? "+" : "").arg(result.savingThrows[i]);
+            output += QString("\nSize: %1; speed: %2 ft.; extra trait HP: +%3\n")
+                .arg(QString::fromStdString(result.size)).arg(result.speed).arg(result.bonusHitPoints);
+            output += "\nTrained skills and modifiers:\n";
+            for (const auto& [skill, modifier] : result.skillBonuses) {
+                auto found = result.proficiencies.find("skill");
+                if (found == result.proficiencies.end() || !found->second.count(skill)) continue;
+                output += QString("• %1: %2%3\n")
+                    .arg(displayLabel(skill)).arg(modifier >= 0 ? "+" : "").arg(modifier);
+            }
+            output += "\nTraits:\n";
             for (const auto& id : result.appliedTraits) {
-                const auto* trait = registry_.find(id);
-                output += "• " + QString::fromStdString(trait ? trait->name : id) + "\n";
+                auto* def = registry_.find(id);
+                output += "• " + QString::fromStdString(def ? def->name : id) + "\n";
             }
             if (!result.appliedFeats.empty()) {
                 output += "\nFeats:\n";
                 for (const auto& id : result.appliedFeats) {
-                    const auto* feat = registry_.find(id);
-                    output += "• " + QString::fromStdString(feat ? feat->name : id) + "\n";
+                    auto* def = registry_.find(id);
+                    output += "• " + QString::fromStdString(def ? def->name : id) + "\n";
                 }
             }
             if (!result.senses.empty()) {
                 output += "\nSenses:\n";
-                for (const auto& sense : result.senses)
-                    output += "• " + QString::fromStdString(sense) + "\n";
+                for (const auto& s : result.senses) output += "• " + QString::fromStdString(s) + "\n";
             }
             preview_->setPlainText(output);
         } catch (const std::exception& e) {
-            preview_->setPlainText(QString::fromStdString(e.what()));
+            clearChoicesUI();
+            choicesLayout_->addWidget(new QLabel("Choices unavailable until current selection is valid."));
+            preview_->setPlainText("Character validation: " + QString::fromStdString(e.what()));
+        }
+    }
+
+    void saveCharacter() {
+        const auto path = QFileDialog::getSaveFileName(this, "Save Character", "character.json", "JSON (*.json)");
+        if (path.isEmpty()) return;
+        try {
+            (void)dnd::resolveCharacter(registry_, model_); // reject invalid, allow incomplete drafts
+            QSaveFile file(path);
+            if (!file.open(QIODevice::WriteOnly)) throw std::runtime_error(file.errorString().toStdString());
+            const QByteArray json = QByteArray::fromStdString(dnd::serializeCharacterChoices(model_));
+            if (file.write(json) != json.size() || !file.commit())
+                throw std::runtime_error(file.errorString().toStdString());
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Save failed", QString::fromStdString(e.what()));
+        }
+    }
+
+    void openCharacter() {
+        const auto path = QFileDialog::getOpenFileName(this, "Open Character", QString(), "JSON (*.json)");
+        if (path.isEmpty()) return;
+        try {
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error(file.errorString().toStdString());
+            const QByteArray bytes = file.readAll();
+            auto loaded = dnd::parseCharacterChoices(std::string(bytes.constData(), bytes.size()));
+            (void)dnd::resolveCharacter(registry_, loaded); // validate BEFORE replacing current model
+            const QSignalBlocker r(race_), c(class_), l(level_);
+            model_ = std::move(loaded);
+            race_->setCurrentIndex(race_->findData(QString::fromStdString(model_.raceId)));
+            setSubraces(model_.subraceId, false);
+            class_->setCurrentIndex(class_->findData(QString::fromStdString(model_.classId)));
+            level_->setValue(model_.level);
+            for (int i = 0; i < 6; ++i) {
+                const QSignalBlocker block(abilities_[i]);
+                abilities_[i]->setValue(model_.baseAbilities[i]);
+            }
+            {
+                const QSignalBlocker block(shield_);
+                shield_->setChecked(std::find(model_.equipmentTags.begin(), model_.equipmentTags.end(), "shield")
+                                    != model_.equipmentTags.end());
+            }
+            for (const auto& [id, box] : featCheckboxes_) {
+                const QSignalBlocker block(box);
+                box->setChecked(std::find(model_.featIds.begin(), model_.featIds.end(), id) != model_.featIds.end());
+            }
+            refresh();
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Open failed", QString::fromStdString(e.what()));
         }
     }
 
     dnd::ContentRegistry registry_;
+    dnd::CharacterChoices model_;
     QComboBox* race_ = nullptr;
     QComboBox* subrace_ = nullptr;
+    QComboBox* class_ = nullptr;
+    QSpinBox* level_ = nullptr;
+    QCheckBox* shield_ = nullptr;
     std::array<QSpinBox*, 6> abilities_{};
+    std::vector<std::pair<std::string, QCheckBox*>> featCheckboxes_;
+    QWidget* choicesWidget_ = nullptr;
+    QVBoxLayout* choicesLayout_ = nullptr;
     QPlainTextEdit* preview_ = nullptr;
 };
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
@@ -157,7 +374,7 @@ int main(int argc, char** argv) {
     std::vector<std::filesystem::path> roots = {
         asPath(exeDir.filePath("Content")),
         asPath(exeDir.filePath("../Content")),
-        asPath(exeDir.filePath("../../../Content")), // macOS .app beside Content/
+        asPath(exeDir.filePath("../../../Content")),
         asPath(userContent)
     };
 #ifdef DND_SOURCE_DIR

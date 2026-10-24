@@ -1,0 +1,14 @@
+{
+  "id": "examplepack:guardian_focus",
+  "kind": "trait",
+  "name": "Guardian Focus (Example)",
+  "ruleset": "5e-2014",
+  "description": "Level-3 example feature granting Perception proficiency.",
+  "effects": [
+    {
+      "op": "proficiency.grant",
+      "category": "skill",
+      "id": "perception"
+    }
+  ]
+}
