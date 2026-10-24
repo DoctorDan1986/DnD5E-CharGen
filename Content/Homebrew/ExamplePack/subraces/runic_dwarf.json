@@ -1,0 +1,10 @@
+{
+  "id": "examplepack:runic_dwarf",
+  "kind": "subrace",
+  "name": "Runic Dwarf (Example)",
+  "ruleset": "5e-2014",
+  "parent": "core2014:dwarf",
+  "effects": [{"op": "ability.bonus", "ability": "INT", "value": 1}],
+  "traits": ["examplepack:rune_memory"],
+  "feats": ["examplepack:iron_constitution"]
+}

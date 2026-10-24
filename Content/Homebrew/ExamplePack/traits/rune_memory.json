@@ -1,0 +1,9 @@
+{
+  "id": "examplepack:rune_memory",
+  "kind": "trait",
+  "name": "Rune Memory (Example)",
+  "ruleset": "5e-2014",
+  "description": "An example nonmechanical trait for demonstrating module references.",
+  "effects": [],
+  "sheet": {"section": "features_and_traits", "display": true}
+}
