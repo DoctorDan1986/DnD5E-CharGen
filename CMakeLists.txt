@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(DnD5E_CharGen VERSION 0.1.0 LANGUAGES CXX)
+project(DnD5E_CharGen VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,14 +7,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Boost.JSON is built into dndcore via its header-only unity implementation.
 # Boost headers are a build dependency only; no Boost runtime DLL is required.
-find_package(Boost 1.75 REQUIRED)
+find_package(Boost 1.75 CONFIG REQUIRED)
 
 add_library(dndcore STATIC
     src/json.cpp
     src/content_registry.cpp
     src/character.cpp
 )
-target_include_directories(dndcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+target_include_directories(dndcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(dndcore PUBLIC Boost::headers)
 target_compile_definitions(dndcore PUBLIC BOOST_JSON_NO_LIB)
 
 add_executable(dnd5e-cli apps/cli.cpp)
@@ -23,6 +24,9 @@ target_link_libraries(dnd5e-cli PRIVATE dndcore)
 option(DND_BUILD_GUI "Build the Qt 6 desktop app for macOS, Windows and Linux" ON)
 if(DND_BUILD_GUI)
     find_package(Qt6 6.4 COMPONENTS Widgets QUIET)
+    if(NOT Qt6_FOUND)
+        message(FATAL_ERROR "DND_BUILD_GUI=ON but Qt 6.4+ Widgets was not found. Install Qt 6 and configure with -DQt6_ROOT=<Qt install prefix> (on Homebrew: -DQt6_ROOT=$(brew --prefix qt)), or set -DDND_BUILD_GUI=OFF to build only the CLI and tests.")
+    endif()
     if(Qt6_FOUND)
         qt_add_executable(dnd5e-gui MANUAL_FINALIZATION apps/gui/main.cpp)
         target_link_libraries(dnd5e-gui PRIVATE dndcore Qt6::Widgets)
@@ -41,8 +45,6 @@ if(DND_BUILD_GUI)
             )
             install(SCRIPT ${deploy_script})
         endif()
-    else()
-        message(STATUS "Qt6 Widgets not found: building CLI and tests only. Install Qt 6.4+ for the desktop app.")
     endif()
 endif()
 

@@ -11,22 +11,40 @@ PDF field mapping, or full 2014 SRD library is included yet.
 
 ## Build
 
-Requirements: CMake 3.20+, C++17 compiler, Boost headers 1.75+.
-Qt 6.4+ Widgets is additionally needed to build the desktop frontend.
-Boost.JSON is compiled into the core (no separate Boost.JSON runtime library).
+Requirements: CMake 3.20+, C++17 compiler, Boost 1.75+ headers, and Qt 6.4+
+Widgets for the desktop app. Boost.JSON is compiled into the core (no separate
+Boost.JSON runtime library). `DND_BUILD_GUI=ON` is the default and requires Qt;
+configuration now fails with a clear error rather than silently skipping the GUI.
+
+### macOS (Homebrew)
 
 ```sh
-cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build
+xcode-select --install              # only if Xcode command-line tools are missing
+brew install cmake boost qt
+cmake -S . -B build -DDND_BUILD_GUI=ON \
+  -DBoost_ROOT="$(brew --prefix boost)" \
+  -DQt6_ROOT="$(brew --prefix qt)"
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-./build/dnd5e-cli Content
+open build/dnd5e-gui.app
+```
+
+Qt installations from the Qt Online Installer may use a different prefix; set
+`Qt6_ROOT` to the selected kit's installation directory instead.
+
+### CLI and tests only (no Qt necessary)
+
+```sh
+cmake -S . -B build-cli -DDND_BUILD_GUI=OFF -DBUILD_TESTING=ON
+cmake --build build-cli --parallel
+ctest --test-dir build-cli --output-on-failure
+./build-cli/dnd5e-cli Content
 ```
 
 On Windows use the executable in the configuration directory (e.g., `build/Debug/`).
 On macOS build using Xcode/Qt Creator; on Windows use MSVC/Qt Creator; on Linux
 use Clang or GCC. Qt creates a platform-native desktop application from a **single
-cross-platform codebase**. The CLI and tests build without Qt. To explicitly skip
-GUI detection, add `-DDND_BUILD_GUI=OFF`.
+cross-platform codebase**.
 
 The desktop program loads content next to its executable, from an installed
 `Content/` directory, and from a writable user data `Content/` directory selected

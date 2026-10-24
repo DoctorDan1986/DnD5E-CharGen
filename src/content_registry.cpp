@@ -2,6 +2,7 @@
 #include "dnd/character.hpp"
 
 #include <algorithm>
+#include <boost/system/error_code.hpp>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -22,7 +23,7 @@ std::string readFile(const fs::path& path) {
 
 json::object parseObject(const fs::path& path) {
     const auto bytes = readFile(path);
-    json::error_code ec;
+    boost::system::error_code ec;
     json::value value = json::parse(bytes, ec);
     if (ec) throw std::runtime_error("Invalid JSON: " + ec.message());
     if (!value.is_object()) throw std::runtime_error("Document must be a JSON object");
