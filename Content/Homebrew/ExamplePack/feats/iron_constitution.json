@@ -1,0 +1,9 @@
+{
+  "id": "examplepack:iron_constitution",
+  "kind": "feat",
+  "name": "Iron Constitution (Example)",
+  "ruleset": "5e-2014",
+  "description": "Example homebrew feat: adds one maximum hit point per character level.",
+  "effects": [{"op": "hit_points.bonus_per_level", "value": 1}],
+  "sheet": {"section": "features_and_traits", "display": true}
+}

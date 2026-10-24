@@ -1,0 +1,9 @@
+{
+  "id": "core2014:hill_dwarf",
+  "kind": "subrace",
+  "name": "Hill Dwarf",
+  "ruleset": "5e-2014",
+  "parent": "core2014:dwarf",
+  "effects": [{"op": "ability.bonus", "ability": "WIS", "value": 1}],
+  "traits": ["core2014:dwarven_toughness"]
+}

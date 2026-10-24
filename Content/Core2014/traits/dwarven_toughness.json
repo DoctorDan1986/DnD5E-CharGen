@@ -1,0 +1,9 @@
+{
+  "id": "core2014:dwarven_toughness",
+  "kind": "trait",
+  "name": "Dwarven Toughness",
+  "ruleset": "5e-2014",
+  "description": "Your hit point maximum increases by 1 per character level.",
+  "effects": [{"op": "hit_points.bonus_per_level", "value": 1}],
+  "sheet": {"section": "features_and_traits", "display": true}
+}

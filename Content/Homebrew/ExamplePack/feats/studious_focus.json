@@ -1,0 +1,25 @@
+{
+  "id": "examplepack:studious_focus",
+  "kind": "feat",
+  "name": "Studious Focus (Example)",
+  "ruleset": "5e-2014",
+  "description": "Example feat: requires character level 4 and INT 13; grants Arcana proficiency.",
+  "prerequisites": [
+    {
+      "type": "level",
+      "min": 4
+    },
+    {
+      "type": "ability",
+      "ability": "INT",
+      "min": 13
+    }
+  ],
+  "effects": [
+    {
+      "op": "proficiency.grant",
+      "category": "skill",
+      "id": "arcana"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "core2014:darkvision_60",
+  "kind": "trait",
+  "name": "Darkvision",
+  "ruleset": "5e-2014",
+  "description": "Darkvision out to 60 feet.",
+  "effects": [{"op": "sense.grant", "name": "Darkvision", "range": 60}],
+  "sheet": {"section": "features_and_traits", "display": true}
+}

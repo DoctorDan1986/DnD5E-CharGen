@@ -1,0 +1,17 @@
+{
+  "id": "examplepack:shield_drill",
+  "kind": "trait",
+  "name": "Shield Drill (Example)",
+  "ruleset": "5e-2014",
+  "description": "Grants Athletics training when the shield equipment tag is present. For testing conditional effects only.",
+  "effects": [
+    {
+      "op": "proficiency.grant",
+      "category": "skill",
+      "id": "athletics",
+      "when": {
+        "equipment_tag": "shield"
+      }
+    }
+  ]
+}

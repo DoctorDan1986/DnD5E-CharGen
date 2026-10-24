@@ -1,0 +1,9 @@
+{
+  "id": "core2014:mountain_dwarf",
+  "kind": "subrace",
+  "name": "Mountain Dwarf",
+  "ruleset": "5e-2014",
+  "parent": "core2014:dwarf",
+  "effects": [{"op": "ability.bonus", "ability": "STR", "value": 2}],
+  "traits": []
+}

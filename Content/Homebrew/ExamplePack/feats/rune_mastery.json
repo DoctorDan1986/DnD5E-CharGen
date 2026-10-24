@@ -1,0 +1,19 @@
+{
+  "id": "examplepack:rune_mastery",
+  "kind": "feat",
+  "name": "Rune Mastery (Example)",
+  "ruleset": "5e-2014",
+  "description": "Example feat: grants Arcana training and doubles proficiency for Arcana checks.",
+  "effects": [
+    {
+      "op": "proficiency.grant",
+      "category": "skill",
+      "id": "arcana"
+    },
+    {
+      "op": "proficiency.expertise",
+      "category": "skill",
+      "id": "arcana"
+    }
+  ]
+}

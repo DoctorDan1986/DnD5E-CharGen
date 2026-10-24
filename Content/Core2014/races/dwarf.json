@@ -1,0 +1,10 @@
+{
+  "id": "core2014:dwarf",
+  "kind": "race",
+  "name": "Dwarf",
+  "ruleset": "5e-2014",
+  "size": "medium",
+  "speed": 25,
+  "effects": [{"op": "ability.bonus", "ability": "CON", "value": 2}],
+  "traits": ["core2014:darkvision_60"]
+}
